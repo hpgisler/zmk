@@ -22,7 +22,6 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define ZMK_BHV_KEY_RELEASE_MAX_CAPTURED_EVENTS 12
 const zmk_event_t *captured_events_kr[ZMK_BHV_KEY_RELEASE_MAX_CAPTURED_EVENTS] = {};
 
-
 static int capture_event(const zmk_event_t *ev) {
     struct zmk_position_state_changed *ep = as_zmk_position_state_changed(ev);
     if (ep == NULL) {
@@ -66,26 +65,6 @@ static const zmk_event_t *find_captured_keydown_event(uint32_t position) {
 }
 
 const struct zmk_listener zmk_listener_behavior_key_release;
-
-static int behavior_key_release_init(const struct device *dev) { return 0; };
-
-static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
-                                     struct zmk_behavior_binding_event event) {
-  return ZMK_BEHAVIOR_OPAQUE;
-}
-
-static int on_keymap_binding_released(struct zmk_behavior_binding *binding,
-                                      struct zmk_behavior_binding_event event) {
-    LOG_DBG("position %d keycode 0x%02X", event.position, binding->param1);
-    ZMK_EVENT_RAISE(
-        zmk_keycode_state_changed_from_encoded(binding->param1, true, event.timestamp));
-    return ZMK_EVENT_RAISE(
-        zmk_keycode_state_changed_from_encoded(binding->param1, false, event.timestamp));
-}
-
-static const struct behavior_driver_api behavior_key_release_driver_api = {
-    .binding_pressed = on_keymap_binding_pressed, .binding_released = on_keymap_binding_released};
-
 
 int behavior_key_release_listener(const zmk_event_t *ev) {
     struct zmk_position_state_changed *ep = as_zmk_position_state_changed(ev);
@@ -135,10 +114,3 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
 
 ZMK_LISTENER(behavior_key_release, behavior_key_release_listener);
 ZMK_SUBSCRIPTION(behavior_key_release, zmk_position_state_changed);
-
-
-#define KP_INST(n)                                                                                 \
-    DEVICE_DT_INST_DEFINE(n, behavior_key_release_init, NULL, NULL, NULL, APPLICATION,               \
-                          CONFIG_KERNEL_INIT_PRIORITY_DEFAULT, &behavior_key_release_driver_api);
-
-DT_INST_FOREACH_STATUS_OKAY(KP_INST)
