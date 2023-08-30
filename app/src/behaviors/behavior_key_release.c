@@ -72,34 +72,38 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
         return ZMK_EV_EVENT_BUBBLE;
     }
 
-    static uint8_t hal_last = 0;
+    static bool in_range_presses_exist = false;
   
     uint32_t pos = ep->position;
     uint8_t hal = zmk_keymap_highest_layer_active();
     LOG_DBG("***** %d position on layer %d changed", pos, hal);
 
-    if (ep->state) {
-      // key presses only
-      if (!(pos == 6 || pos > 12 || hal == 0 || hal > 4) && hal == hal_last) {
-        /*
-          we are in range where we want to act on key releases rather then presses
-          - in the set of the 2 x 6 relevant keys
-            0       1       2                   3       4       5
-            7       8       9                   10      11      12
-          - and on the relevant layers
-            ALA1     1
-            ALA2     2
-            ALA1_CPY 3
-            ALA2_CPY 4
-          - and only if this not the first key press on a newly activated layer 
-         */
-        // 
-        LOG_DBG("***** %d position on layer %d pressed", pos, hal);
-        capture_event(ev);
-        hal_last = hal; // update on all key presses
-        return ZMK_EV_EVENT_CAPTURED;
+    /*
+      we define THE RANGE as being:
+      - in the set of the 2 x 6 relevant keys
+        0       1       2                   3       4       5
+        7       8       9                   10      11      12
+      - and on the relevant layers
+        ALA1     1
+        ALA2     2
+        ALA1_CPY 3
+        ALA2_CPY 4
+      - and only if this not the first key press on a newly activated layer 
+     */
+
+    if (ep->state) { /* we regard key presses only */
+      if (pos == 6 || pos > 12 || hal == 0 || hal > 4) {
+        /* we are out of range */
+        in_range_presses_exist = false;
+      } else {
+        /* we are in range */
+        if (in_range_presses_exist) {
+          LOG_DBG("***** %d position on layer %d pressed", pos, hal);
+          capture_event(ev);
+          return ZMK_EV_EVENT_CAPTURED;
+        }
+        in_range_presses_exist = true; 
       }
-      hal_last = hal; // update on all key presses
     }
 
     // for every release:  
