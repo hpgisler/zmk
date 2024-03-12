@@ -66,14 +66,27 @@ static const zmk_event_t *find_captured_keydown_event(uint32_t position) {
 
 const struct zmk_listener zmk_listener_behavior_key_release;
 
+/* Layers */
 #define ALA0        0
 #define ALA1        1
 #define ALA2        2
 #define ALA1_CPY    3
 #define ALA2_CPY    4
+#define NAS0        5
+#define FUN0        6
+#define NAS1        7
+#define FUN1        8
+#define NAS2        9
+#define FUN2       10
+#define ALA3       11
+#define ALA4       12
+#define MODL       13
+#define MODR       14
 
-#define ALA1_KEY    17
 #define ALA2_KEY    14
+#define NAS0_KEY    15
+#define FUN0_KEY    16
+#define ALA1_KEY    17
 
 #define IS_LHS_KEY(KeyPos) ((KeyPos >= 0 && KeyPos <= 2) || (KeyPos >= 7  && KeyPos <=  9))
 #define IS_RHS_KEY(KeyPos) ((KeyPos >= 3 && KeyPos <= 5) || (KeyPos >= 10 && KeyPos <= 12))
@@ -115,7 +128,10 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
   switch (state1) {
   case 1:
     LOG_DBG("===== Current state: ALA1.1 =====");
-    if (KeyAction == KeyPress && KeyPos == ALA1_KEY && (FocusLayer == ALA0 || FocusLayer == ALA2_CPY)) {
+    if ((KeyAction == KeyPress && KeyPos == ALA1_KEY &&
+         (FocusLayer == ALA0 || FocusLayer == ALA2_CPY)) ||
+        (KeyAction == KeyRelease && KeyPos == ALA2_KEY && FocusLayer == ALA4) ||
+        (KeyAction == KeyRelease && KeyPos == NAS0_KEY && FocusLayer == NAS1)) {
       state1 = 2;
       LOG_DBG("      (ALA1 activated)");
       LOG_DBG("----- Next state: ALA1.%d -----", state1);
@@ -190,7 +206,10 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
   switch (state2) {
   case 1:
     LOG_DBG("===== Current state: ALA2.1 =====");
-    if (KeyAction == KeyPress && KeyPos == ALA2_KEY && (FocusLayer == ALA0 || FocusLayer == ALA1_CPY)) {
+    if ((KeyAction == KeyPress && KeyPos == ALA2_KEY &&
+         (FocusLayer == ALA0 || FocusLayer == ALA1_CPY)) ||
+        (KeyAction == KeyRelease && KeyPos == ALA1_KEY && FocusLayer == ALA4) ||
+        (KeyAction == KeyRelease && KeyPos == FUN0_KEY && FocusLayer == FUN1)) {
       state2 = 2;
       LOG_DBG("      (ALA2 activated)");
       LOG_DBG("----- Next state: ALA2.%d -----", state2);
