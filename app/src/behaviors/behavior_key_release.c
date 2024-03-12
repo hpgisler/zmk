@@ -72,6 +72,13 @@ const struct zmk_listener zmk_listener_behavior_key_release;
 #define ALA1_CPY    3
 #define ALA2_CPY    4
 
+#define ALA1_KEY    17
+#define ALA2_KEY    14
+
+#define IS_LHS_KEY(KeyPos) ((KeyPos >= 0 && KeyPos <= 2) || (KeyPos >= 7  && KeyPos <=  9))
+#define IS_RHS_KEY(KeyPos) ((KeyPos >= 3 && KeyPos <= 5) || (KeyPos >= 10 && KeyPos <= 12))
+#define IS_LAYER_KEY(KeyPos) (KeyPos >= ALA2_KEY && KeyPos <= ALA1_KEY)
+
 int behavior_key_release_listener(const zmk_event_t *ev) {
   struct zmk_position_state_changed *ep = as_zmk_position_state_changed(ev);
   if (ep == NULL) {
@@ -86,7 +93,8 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
   const uint8_t FocusLayer = zmk_keymap_highest_layer_active();
   LOG_DBG("***** %d position on layer %d changed to %s", KeyPos, FocusLayer, KeyAction ? "pressed" : "released");
 
-  static uint8_t state = 1;
+  static uint8_t state1 = 1; // for ALA1 handling
+  static uint8_t state2 = 1; // for ALA2 handling
 
   // capture memory
   static const zmk_event_t *pCapturedEvent;
@@ -100,77 +108,153 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
 
    */
 
-  // state machine ALA2
-  switch (state) {
+  // ------------------
+  // state machine ALA1
+  // ------------------
+
+  switch (state1) {
   case 1:
-    LOG_DBG("===== Current state: 1 =====");
-    if (KeyAction == KeyPress && KeyPos == 14 && (FocusLayer == ALA0 || FocusLayer == ALA1_CPY)) {
-      state = 2;
-      LOG_DBG("      (ALA2 activated)");
-      LOG_DBG("----- Next state: %d -----", state);
+    LOG_DBG("===== Current state: ALA1.1 =====");
+    if (KeyAction == KeyPress && KeyPos == ALA1_KEY && (FocusLayer == ALA0 || FocusLayer == ALA2_CPY)) {
+      state1 = 2;
+      LOG_DBG("      (ALA1 activated)");
+      LOG_DBG("----- Next state: ALA1.%d -----", state1);
     }
     break;
 
   case 2:
-    LOG_DBG("===== Current state: 2 =====");
-    if (KeyPos >= 14 && KeyPos <= 17) {
-      state = 1;
+    LOG_DBG("===== Current state: ALA1.2 =====");
+    if IS_LAYER_KEY(KeyPos) {
+      state1 = 1;
       LOG_DBG("      (Layer key changed)");
-      LOG_DBG("----- Next state: %d -----", state);
+      LOG_DBG("----- Next state: ALA1.%d -----", state1);
     }
-    if (KeyAction == KeyPress && ((KeyPos >= 0 && KeyPos <= 2) || (KeyPos >= 7 && KeyPos <= 9))) {
-      state = 3;
-      LOG_DBG("      (LHS key pressed)");
-      LOG_DBG("----- Next state: %d -----", state);
+    if (KeyAction == KeyPress && IS_RHS_KEY(KeyPos)) {
+      state1 = 3;
+      LOG_DBG("      (RHS key pressed)");
+      LOG_DBG("----- Next state: ALA1.%d -----", state1);
     }
     break;
 
   case 3:
-    LOG_DBG("===== Current state: 3 =====");
-    if (KeyPos >= 14 && KeyPos <= 17) {
-      state = 1;
+    LOG_DBG("===== Current state: ALA1.3 =====");
+    if IS_LAYER_KEY(KeyPos) {
+      state1 = 1;
       LOG_DBG("      (Layer key changed)");
-      LOG_DBG("----- Next state: %d -----", state);
+      LOG_DBG("----- Next state: ALA1.%d -----", state1);
     }
-    if (KeyAction == KeyPress && ((KeyPos >= 3 && KeyPos <= 5) || (KeyPos >= 10 && KeyPos <= 12))) {
-      state = 4;
-      LOG_DBG("      (RHS key pressed)");
-      LOG_DBG("----- Next state: %d -----", state);
+    if (KeyAction == KeyPress && IS_LHS_KEY(KeyPos)) {
+      state1 = 4;
+      LOG_DBG("      (LHS key pressed)");
+      LOG_DBG("----- Next state: ALA1.%d -----", state1);
       pCapturedEvent = ev;
       return ZMK_EV_EVENT_CAPTURED;
     }
     break;
 
   case 4:
-    LOG_DBG("===== Current state: 4 =====");
+    LOG_DBG("===== Current state: ALA1.4 =====");
     if (pCapturedEvent == NULL) {
-      state = 1;
+      state1 = 1;
       LOG_ERR("!!!!! Error: On state 4, missing captured event");
-      LOG_DBG("----- Next state: %d -----", state);
+      LOG_DBG("----- Next state: ALA1.%d -----", state1);
       break;
     }
 
-    if ((KeyAction == KeyPress && ((KeyPos >= 0 && KeyPos <= 5) ||
-                                   (KeyPos >= 7 && KeyPos <= 12) ||
-                                   (KeyPos >= 14 && KeyPos <= 17))) ||
+    if ((KeyAction == KeyPress && (IS_LHS_KEY(KeyPos) || IS_RHS_KEY(KeyPos) || IS_LAYER_KEY(KeyPos))) ||
         (KeyAction == KeyRelease && KeyPos == as_zmk_position_state_changed(pCapturedEvent)->position)) {
-      state = 1;
+      state1 = 1;
       // raise captured event first, then do the  rest
       LOG_DBG("      (Any key pressed or Captured key released: Raise Captured Event, then do the rest");
-      LOG_DBG("----- Next state: %d -----", state);
+      LOG_DBG("----- Next state: ALA1.%d -----", state1);
       ZMK_EVENT_RAISE_AFTER(pCapturedEvent, behavior_key_release);
       pCapturedEvent = NULL;
 
-    } else if (KeyAction == KeyRelease && KeyPos == 14) {
-      state = 1;
+    } else if (KeyAction == KeyRelease && KeyPos == ALA1_KEY) {
+      state1 = 1;
       // leave the layer (and the state), then - later - wait for captured key release: then raise it
-      LOG_DBG("***** (ALA2 layer key released: Exit layer; then - later - wait for captured key release: then raise it");
-      LOG_DBG("----- Next state: %d -----", state);
+      LOG_DBG("***** (ALA1 layer key released: Exit layer; then - later - wait for captured key release: then raise it");
+      LOG_DBG("----- Next state: ALA1.%d -----", state1);
     }
     break;
 
   default:
-    LOG_ERR("invalid state '%d' of key release behavior", state);
+    LOG_ERR("invalid state '%d' of key release behavior", state1);
+    break;
+  }
+
+  // ------------------
+  // state machine ALA2
+  // ------------------
+
+  switch (state2) {
+  case 1:
+    LOG_DBG("===== Current state: ALA2.1 =====");
+    if (KeyAction == KeyPress && KeyPos == ALA2_KEY && (FocusLayer == ALA0 || FocusLayer == ALA1_CPY)) {
+      state2 = 2;
+      LOG_DBG("      (ALA2 activated)");
+      LOG_DBG("----- Next state: ALA2.%d -----", state2);
+    }
+    break;
+
+  case 2:
+    LOG_DBG("===== Current state: ALA2.2 =====");
+    if IS_LAYER_KEY(KeyPos) {
+      state2 = 1;
+      LOG_DBG("      (Layer key changed)");
+      LOG_DBG("----- Next state: ALA2.%d -----", state2);
+    }
+    if (KeyAction == KeyPress && IS_LHS_KEY(KeyPos)) {
+      state2 = 3;
+      LOG_DBG("      (LHS key pressed)");
+      LOG_DBG("----- Next state: ALA2.%d -----", state2);
+    }
+    break;
+
+  case 3:
+    LOG_DBG("===== Current state: ALA2.3 =====");
+    if IS_LAYER_KEY(KeyPos) {
+      state2 = 1;
+      LOG_DBG("      (Layer key changed)");
+      LOG_DBG("----- Next state: ALA2.%d -----", state2);
+    }
+    if (KeyAction == KeyPress && IS_RHS_KEY(KeyPos)) {
+      state2 = 4;
+      LOG_DBG("      (RHS key pressed)");
+      LOG_DBG("----- Next state: ALA2.%d -----", state2);
+      pCapturedEvent = ev;
+      return ZMK_EV_EVENT_CAPTURED;
+    }
+    break;
+
+  case 4:
+    LOG_DBG("===== Current state: ALA2.4 =====");
+    if (pCapturedEvent == NULL) {
+      state2 = 1;
+      LOG_ERR("!!!!! Error: On state 4, missing captured event");
+      LOG_DBG("----- Next state: ALA2.%d -----", state2);
+      break;
+    }
+
+    if ((KeyAction == KeyPress && (IS_LHS_KEY(KeyPos) || IS_RHS_KEY(KeyPos) || IS_LAYER_KEY(KeyPos))) ||
+        (KeyAction == KeyRelease && KeyPos == as_zmk_position_state_changed(pCapturedEvent)->position)) {
+      state2 = 1;
+      // raise captured event first, then do the  rest
+      LOG_DBG("      (Any key pressed or Captured key released: Raise Captured Event, then do the rest");
+      LOG_DBG("----- Next state: ALA2.%d -----", state2);
+      ZMK_EVENT_RAISE_AFTER(pCapturedEvent, behavior_key_release);
+      pCapturedEvent = NULL;
+
+    } else if (KeyAction == KeyRelease && KeyPos == ALA2_KEY) {
+      state2 = 1;
+      // leave the layer (and the state), then - later - wait for captured key release: then raise it
+      LOG_DBG("***** (ALA2 layer key released: Exit layer; then - later - wait for captured key release: then raise it");
+      LOG_DBG("----- Next state: ALA2.%d -----", state2);
+    }
+    break;
+
+  default:
+    LOG_ERR("invalid state '%d' of key release behavior", state2);
     break;
   }
 
