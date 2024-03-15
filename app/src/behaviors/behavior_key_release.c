@@ -185,12 +185,18 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
       LOG_DBG("----- Next state: ALA1.%d -----", state1);
       ZMK_EVENT_RAISE_AFTER(pCapturedEvent, behavior_key_release);
       pCapturedEvent = NULL;
+      // note: the actual key release will be bubbled (i.e. do not return here)
 
     } else if (KeyAction == KeyRelease && KeyPos == ALA1_KEY) {
       state1 = 1;
       // leave the layer (and the state), then - later - wait for captured key release: then raise it
-      LOG_DBG("***** (ALA1 layer key released: Exit layer; then - later - wait for captured key release: then raise it");
+      LOG_DBG("***** (ALA1 layer key released: Exit layer, then raise captured key press");
       LOG_DBG("----- Next state: ALA1.%d -----", state1);
+      ZMK_EVENT_RAISE_AFTER(ev, behavior_key_release);
+      ZMK_EVENT_RAISE_AFTER(pCapturedEvent, behavior_key_release);
+      pCapturedEvent = NULL;
+      LOG_DBG("      (Released captured key");
+      return ZMK_EV_EVENT_CAPTURED;
     }
     break;
 
@@ -263,12 +269,18 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
       LOG_DBG("----- Next state: ALA2.%d -----", state2);
       ZMK_EVENT_RAISE_AFTER(pCapturedEvent, behavior_key_release);
       pCapturedEvent = NULL;
+      // note: the actual key release will be bubbled (i.e. do not return here)
 
     } else if (KeyAction == KeyRelease && KeyPos == ALA2_KEY) {
       state2 = 1;
       // leave the layer (and the state), then - later - wait for captured key release: then raise it
-      LOG_DBG("***** (ALA2 layer key released: Exit layer; then - later - wait for captured key release: then raise it");
+      LOG_DBG("***** (ALA2 layer key released: Exit layer, then raise captured key press");
       LOG_DBG("----- Next state: ALA2.%d -----", state2);
+      ZMK_EVENT_RAISE_AFTER(ev, behavior_key_release);
+      ZMK_EVENT_RAISE_AFTER(pCapturedEvent, behavior_key_release);
+      pCapturedEvent = NULL;
+      LOG_DBG("      (Released captured key");
+      return ZMK_EV_EVENT_CAPTURED;
     }
     break;
 
@@ -277,17 +289,6 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
     break;
   }
 
-  // Outside of state machine (Stateless) key release check:
-  // is our captured key released? if so: raise key press before release
-  if (pCapturedEvent != NULL) {
-    struct zmk_position_state_changed *pCapturedPos = as_zmk_position_state_changed(pCapturedEvent);
-    if ( pCapturedPos != NULL && pCapturedPos->position == KeyPos && KeyAction == KeyRelease) {
-      LOG_DBG("      (Captured key released: Raise Captured Event now");
-      ZMK_EVENT_RAISE_AFTER(pCapturedEvent, behavior_key_release);
-      pCapturedEvent = NULL;
-    }
-  }    
-  
   return ZMK_EV_EVENT_BUBBLE;
 }
 
