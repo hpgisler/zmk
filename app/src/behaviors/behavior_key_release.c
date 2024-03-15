@@ -18,52 +18,6 @@
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
-
-#define ZMK_BHV_KEY_RELEASE_MAX_CAPTURED_EVENTS 12
-const zmk_event_t *captured_events_kr[ZMK_BHV_KEY_RELEASE_MAX_CAPTURED_EVENTS] = {};
-
-static int capture_event(const zmk_event_t *ev) {
-    struct zmk_position_state_changed *ep = as_zmk_position_state_changed(ev);
-    if (ep == NULL) {
-      return 0;
-    }
-    
-    for (int i = 0; i < ZMK_BHV_KEY_RELEASE_MAX_CAPTURED_EVENTS; i++) {
-        if (captured_events_kr[i] == NULL) {
-            captured_events_kr[i] = ev;
-            return 0;
-        }
-    }
-    LOG_ERR("no space left in event capture list");
-    return -ENOMEM;
-}
-
-
-static void remove_captured_event(const zmk_event_t *ev) {
-    for (int i = 0; i < ZMK_BHV_KEY_RELEASE_MAX_CAPTURED_EVENTS; i++) {
-        if (captured_events_kr[i] == ev) {
-          captured_events_kr[i] = NULL;
-          return;
-        }
-    }
-    LOG_ERR("unable to remove non-existing event");
-}
-
-static const zmk_event_t *find_captured_keydown_event(uint32_t position) {
-    for (int i = 0; i < ZMK_BHV_KEY_RELEASE_MAX_CAPTURED_EVENTS; i++) {
-        const zmk_event_t *ev = captured_events_kr[i];
-        if (ev == NULL) {
-            continue;
-        }
-        // here we have an event and we can be sure that it is a position event (as we only capture those)
-        struct zmk_position_state_changed *ep = as_zmk_position_state_changed(ev);
-        if (ep->position == position && ep->state) {
-            return ev;
-        }
-    }
-    return NULL;
-}
-
 const struct zmk_listener zmk_listener_behavior_key_release;
 
 /* Layers */
