@@ -62,6 +62,7 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
 
   static uint8_t state1 = 1; // for ALA1 handling
   static uint8_t state2 = 1; // for ALA2 handling
+  static uint32_t last_key_pos = 0;
 
   // capture memory
   static const zmk_event_t *pCapturedEvent;
@@ -113,11 +114,14 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
       LOG_DBG("      (Layer key changed)");
       LOG_DBG("----- Next state: ALA1.%d -----", state1);
     }
-    if (KeyAction == KeyPress && IS_LHS_KEY(KeyPos)) {
+    if (KeyAction == KeyPress && (IS_LHS_KEY(KeyPos)
+                                  || (last_key_pos == 12 /*y*/ && KeyPos == 11)
+                                  || (last_key_pos == 11 /*,*/ && KeyPos == 10))) {
       state1 = 4;
       LOG_DBG("      (LHS key pressed)");
       LOG_DBG("----- Next state: ALA1.%d -----", state1);
       pCapturedEvent = ev;
+      last_key_pos = KeyPos;
       return ZMK_EV_EVENT_CAPTURED;
     }
     break;
@@ -150,6 +154,7 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
       ZMK_EVENT_RAISE_AFTER(pCapturedEvent, behavior_key_release);
       pCapturedEvent = NULL;
       LOG_DBG("      (Released captured key");
+      last_key_pos = KeyPos;
       return ZMK_EV_EVENT_CAPTURED;
     }
     break;
@@ -197,11 +202,14 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
       LOG_DBG("      (Layer key changed)");
       LOG_DBG("----- Next state: ALA2.%d -----", state2);
     }
-    if (KeyAction == KeyPress && IS_RHS_KEY(KeyPos)) {
+    if (KeyAction == KeyPress && (IS_RHS_KEY(KeyPos)
+                                  || (last_key_pos == 7 /*l*/ && KeyPos == 8)
+                                  || (last_key_pos == 8 /*f*/ && KeyPos == 9))) {
       state2 = 4;
       LOG_DBG("      (RHS key pressed)");
       LOG_DBG("----- Next state: ALA2.%d -----", state2);
       pCapturedEvent = ev;
+      last_key_pos = KeyPos;
       return ZMK_EV_EVENT_CAPTURED;
     }
     break;
@@ -234,6 +242,7 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
       ZMK_EVENT_RAISE_AFTER(pCapturedEvent, behavior_key_release);
       pCapturedEvent = NULL;
       LOG_DBG("      (Released captured key");
+      last_key_pos = KeyPos;
       return ZMK_EV_EVENT_CAPTURED;
     }
     break;
@@ -243,6 +252,7 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
     break;
   }
 
+  last_key_pos = KeyPos;
   return ZMK_EV_EVENT_BUBBLE;
 }
 
