@@ -52,6 +52,7 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
     return ZMK_EV_EVENT_BUBBLE;
   }
 
+  
   const bool KeyPress = true;
   const bool KeyRelease = false;
   const bool KeyAction = ep->state;
@@ -65,8 +66,11 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
   static uint32_t last_key_pos = 0;
 
   // capture memory
-  static const zmk_event_t *pCapturedEvent;
-  
+  static struct zmk_position_state_changed_event captured_event_;
+
+  // current memory
+  struct zmk_position_state_changed_event current_event = copy_raised_zmk_position_state_changed(ep);
+
   /*
     the key positions are defined as follows
 
@@ -75,6 +79,7 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
                       14      15                  16      17
 
    */
+
 
   // ------------------
   // state machine ALA1
@@ -120,7 +125,7 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
       state1 = 4;
       LOG_DBG("      (LHS key pressed)");
       LOG_DBG("----- Next state: ALA1.%d -----", state1);
-      pCapturedEvent = ev;
+      captured_event_ = copy_raised_zmk_position_state_changed(ep);
       last_key_pos = KeyPos;
       return ZMK_EV_EVENT_CAPTURED;
     }
@@ -128,21 +133,13 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
 
   case 4:
     LOG_DBG("===== Current state: ALA1.4 =====");
-    if (pCapturedEvent == NULL) {
-      state1 = 1;
-      LOG_ERR("!!!!! Error: On state 4, missing captured event");
-      LOG_DBG("----- Next state: ALA1.%d -----", state1);
-      break;
-    }
-
     if ((KeyAction == KeyPress && (IS_LHS_KEY(KeyPos) || IS_RHS_KEY(KeyPos) || IS_LAYER_KEY(KeyPos))) ||
-        (KeyAction == KeyRelease && KeyPos == as_zmk_position_state_changed(pCapturedEvent)->position)) {
+        (KeyAction == KeyRelease && KeyPos == captured_event_.data.position)) {
       state1 = 1;
       // raise captured event first, then do the  rest
       LOG_DBG("      (Any key pressed or Captured key released: Raise Captured Event, then do the rest");
       LOG_DBG("----- Next state: ALA1.%d -----", state1);
-      ZMK_EVENT_RAISE_AFTER(pCapturedEvent, behavior_key_release);
-      pCapturedEvent = NULL;
+      ZMK_EVENT_RAISE_AFTER(captured_event_, behavior_key_release);
       // note: the actual key release will be bubbled (i.e. do not return here)
 
     } else if (KeyAction == KeyRelease && KeyPos == ALA1_KEY) {
@@ -150,9 +147,8 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
       // leave the layer (and the state), then - later - wait for captured key release: then raise it
       LOG_DBG("***** (ALA1 layer key released: Exit layer, then raise captured key press");
       LOG_DBG("----- Next state: ALA1.%d -----", state1);
-      ZMK_EVENT_RAISE_AFTER(ev, behavior_key_release);
-      ZMK_EVENT_RAISE_AFTER(pCapturedEvent, behavior_key_release);
-      pCapturedEvent = NULL;
+      ZMK_EVENT_RAISE_AFTER((current_event), behavior_key_release);
+      ZMK_EVENT_RAISE_AFTER(captured_event_, behavior_key_release);
       LOG_DBG("      (Released captured key");
       last_key_pos = KeyPos;
       return ZMK_EV_EVENT_CAPTURED;
@@ -208,7 +204,7 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
       state2 = 4;
       LOG_DBG("      (RHS key pressed)");
       LOG_DBG("----- Next state: ALA2.%d -----", state2);
-      pCapturedEvent = ev;
+      captured_event_ = copy_raised_zmk_position_state_changed(ep);
       last_key_pos = KeyPos;
       return ZMK_EV_EVENT_CAPTURED;
     }
@@ -216,21 +212,13 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
 
   case 4:
     LOG_DBG("===== Current state: ALA2.4 =====");
-    if (pCapturedEvent == NULL) {
-      state2 = 1;
-      LOG_ERR("!!!!! Error: On state 4, missing captured event");
-      LOG_DBG("----- Next state: ALA2.%d -----", state2);
-      break;
-    }
-
     if ((KeyAction == KeyPress && (IS_LHS_KEY(KeyPos) || IS_RHS_KEY(KeyPos) || IS_LAYER_KEY(KeyPos))) ||
-        (KeyAction == KeyRelease && KeyPos == as_zmk_position_state_changed(pCapturedEvent)->position)) {
+        (KeyAction == KeyRelease && KeyPos == captured_event_.data.position)) {
       state2 = 1;
       // raise captured event first, then do the  rest
       LOG_DBG("      (Any key pressed or Captured key released: Raise Captured Event, then do the rest");
       LOG_DBG("----- Next state: ALA2.%d -----", state2);
-      ZMK_EVENT_RAISE_AFTER(pCapturedEvent, behavior_key_release);
-      pCapturedEvent = NULL;
+      ZMK_EVENT_RAISE_AFTER(captured_event_, behavior_key_release);
       // note: the actual key release will be bubbled (i.e. do not return here)
 
     } else if (KeyAction == KeyRelease && KeyPos == ALA2_KEY) {
@@ -238,9 +226,8 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
       // leave the layer (and the state), then - later - wait for captured key release: then raise it
       LOG_DBG("***** (ALA2 layer key released: Exit layer, then raise captured key press");
       LOG_DBG("----- Next state: ALA2.%d -----", state2);
-      ZMK_EVENT_RAISE_AFTER(ev, behavior_key_release);
-      ZMK_EVENT_RAISE_AFTER(pCapturedEvent, behavior_key_release);
-      pCapturedEvent = NULL;
+      ZMK_EVENT_RAISE_AFTER(current_event, behavior_key_release);
+      ZMK_EVENT_RAISE_AFTER(captured_event_, behavior_key_release);
       LOG_DBG("      (Released captured key");
       last_key_pos = KeyPos;
       return ZMK_EV_EVENT_CAPTURED;
