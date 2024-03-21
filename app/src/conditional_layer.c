@@ -15,6 +15,7 @@
 #include <zmk/event_manager.h>
 #include <zmk/keymap.h>
 #include <zmk/events/layer_state_changed.h>
+#include <zmk/events/keycode_state_changed.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
@@ -32,6 +33,9 @@ struct conditional_layer_cfg {
     // The layer number that should be active while all layers in the if-layers mask are active.
     int8_t then_layer;
 };
+
+// this keeps track of the last non-layer, non-mod key tap
+static int64_t last_tapped_timestamp = INT32_MIN;
 
 #define IF_LAYER_BIT(node_id, prop, idx) BIT(DT_PROP_BY_IDX(node_id, prop, idx)) |
 
@@ -68,9 +72,20 @@ static void conditional_layer_deactivate(int8_t layer) {
     }
 }
 
+#define REQUIRE_PRIOR_IDLE_MS 130
+
+static bool is_quick_tap(int64_t timestamp) {
+    return (last_tapped_timestamp + REQUIRE_PRIOR_IDLE_MS) > timestamp;
+}
+
 static int layer_state_changed_listener(const zmk_event_t *ev) {
     static bool conditional_layer_updates_needed;
 
+    struct zmk_layer_state_changed *el = as_zmk_layer_state_changed(ev);
+    if (el == NULL) {
+      return ZMK_EV_EVENT_BUBBLE;
+    } 
+  
     conditional_layer_updates_needed = true;
 
     // Semaphore ensures we don't re-enter the loop in the middle of doing update, and
@@ -81,44 +96,64 @@ static int layer_state_changed_listener(const zmk_event_t *ev) {
     }
 
     while (conditional_layer_updates_needed) {
-        int8_t max_then_layer = -1;
-        uint32_t then_layers = 0;
-        uint32_t then_layer_state = 0;
+      int8_t max_then_layer = -1;
+      uint32_t then_layers = 0;
+      uint32_t then_layer_state = 0;
 
-        conditional_layer_updates_needed = false;
+      conditional_layer_updates_needed = false;
 
-        // On layer state changes, examines each conditional layer config to determine if then-layer
-        // in the config should activate based on the currently active set of if-layers.
-        for (int i = 0; i < NUM_CONDITIONAL_LAYER_CFGS; i++) {
-            const struct conditional_layer_cfg *cfg = CONDITIONAL_LAYER_CFGS + i;
-            zmk_keymap_layers_state_t mask = cfg->if_layers_state_mask;
-            then_layers |= BIT(cfg->then_layer);
-            max_then_layer = MAX(max_then_layer, cfg->then_layer);
+      // On layer state changes, examines each conditional layer config to determine if then-layer
+      // in the config should activate based on the currently active set of if-layers.
+      for (int i = 0; i < NUM_CONDITIONAL_LAYER_CFGS; i++) {
+        const struct conditional_layer_cfg *cfg = CONDITIONAL_LAYER_CFGS + i;
+        zmk_keymap_layers_state_t mask = cfg->if_layers_state_mask;
+        then_layers |= BIT(cfg->then_layer);
+        max_then_layer = MAX(max_then_layer, cfg->then_layer);
 
-            // Activate then-layer if and only if all if-layers are already active. Note that we
-            // reevaluate the current layer state for each config since activation of one layer can
-            // also trigger activation of another.
-            if ((zmk_keymap_layer_state() & mask) == mask) {
-                then_layer_state |= BIT(cfg->then_layer);
-            }
+        // Activate then-layer if and only if all if-layers are already active. Note that we
+        // reevaluate the current layer state for each config since activation of one layer can
+        // also trigger activation of another.
+        if ((zmk_keymap_layer_state() & mask) == mask) {
+          then_layer_state |= BIT(cfg->then_layer);
         }
+      }
 
-        for (uint8_t layer = 0; layer <= max_then_layer; layer++) {
-            if ((BIT(layer) & then_layers) != 0U) {
-                if ((BIT(layer) & then_layer_state) != 0U) {
-                    conditional_layer_activate(layer);
-                } else {
-                    conditional_layer_deactivate(layer);
-                }
+      for (uint8_t layer = 0; layer <= max_then_layer; layer++) {
+        if ((BIT(layer) & then_layers) != 0U) {
+          if ((BIT(layer) & then_layer_state) != 0U) {
+            if (!is_quick_tap(el->timestamp)) {
+              conditional_layer_activate(layer);
             }
+          } else {
+            conditional_layer_deactivate(layer);
+          }
         }
+      }
     }
 
     k_sem_give(&conditional_layer_sem);
     return 0;
 }
 
+static void store_last_tapped(int64_t timestamp) {
+  last_tapped_timestamp = timestamp;
+}
+
+
+
+int keycode_state_changed_listener(const zmk_event_t *eh) {
+  struct zmk_keycode_state_changed *ev = as_zmk_keycode_state_changed(eh);
+  if (ev != NULL && ev->state && !is_mod(ev->usage_page, ev->keycode)) {
+    LOG_DBG("      Non-mod key code changed: %d", ev->keycode);
+    store_last_tapped(ev->timestamp);
+  }
+  return ZMK_EV_EVENT_BUBBLE;
+}
+
 ZMK_LISTENER(conditional_layer, layer_state_changed_listener);
 ZMK_SUBSCRIPTION(conditional_layer, zmk_layer_state_changed);
+
+ZMK_LISTENER(conditional_layer_b, keycode_state_changed_listener);
+ZMK_SUBSCRIPTION(conditional_layer_b, zmk_keycode_state_changed);
 
 #endif
