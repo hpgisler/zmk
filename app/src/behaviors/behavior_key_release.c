@@ -120,8 +120,9 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
       LOG_DBG("----- Next state: ALA1.%d -----", state1);
     }
     if (KeyAction == KeyPress && (IS_LHS_KEY(KeyPos)
-                                  || (last_key_pos == 12 /*y*/ && KeyPos == 11)
-                                  || (last_key_pos == 11 /*,*/ && KeyPos == 10))) {
+                                  || (last_key_pos == 12 /*y*/ && KeyPos == 11 /*,e*/)
+                                  || (last_key_pos == 11 /*,*/ && KeyPos == 10 /*c */)
+                                  || (last_key_pos == 10 /*c*/ && KeyPos == 11 /*,e*/))) {
       state1 = 4;
       LOG_DBG("      (LHS key pressed)");
       LOG_DBG("----- Next state: ALA1.%d -----", state1);
