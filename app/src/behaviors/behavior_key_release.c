@@ -210,8 +210,7 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
     if (KeyAction == KeyPress && (IS_RHS_KEY(KeyPos)
                                   || (last_key_pos == 7  /*l*/ && KeyPos == 8  /*fs*/)
                                   || (last_key_pos == 8  /*f*/ && KeyPos == 9  /*gt*/)
-                                  || (last_key_pos == 9  /*g*/ && KeyPos == 8  /*fs*/)
-                                  || (last_key_pos == 11 /*.*/ && KeyPos == 10 /*- */))) {
+                                  || (last_key_pos == 9  /*g*/ && KeyPos == 8  /*fs*/))) {
       state2 = 4;
       LOG_DBG("      (RHS key pressed)");
       LOG_DBG("----- Next state: ALA2.%d -----", state2);
