@@ -190,6 +190,14 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
       LOG_DBG("      (LHS key pressed)");
       LOG_DBG("----- Next state: ALA2.%d -----", state2);
     }
+    if (KeyAction == KeyPress && last_key_pos == 11 /*.*/ && KeyPos == 10 /*- */) {
+      state2 = 4;
+      LOG_DBG("      (.- or .SPC pressed --> capturing..)");
+      LOG_DBG("----- Next state: ALA2.%d -----", state2);
+      captured_event_ = copy_raised_zmk_position_state_changed(ep);
+      last_key_pos = KeyPos;
+      return ZMK_EV_EVENT_CAPTURED;
+    }
     break;
 
   case 3:
@@ -200,8 +208,10 @@ int behavior_key_release_listener(const zmk_event_t *ev) {
       LOG_DBG("----- Next state: ALA2.%d -----", state2);
     }
     if (KeyAction == KeyPress && (IS_RHS_KEY(KeyPos)
-                                  || (last_key_pos == 7 /*l*/ && KeyPos == 8)
-                                  || (last_key_pos == 8 /*f*/ && KeyPos == 9))) {
+                                  || (last_key_pos == 7  /*l*/ && KeyPos == 8  /*fs*/)
+                                  || (last_key_pos == 8  /*f*/ && KeyPos == 9  /*gt*/)
+                                  || (last_key_pos == 9  /*g*/ && KeyPos == 8  /*fs*/)
+                                  || (last_key_pos == 11 /*.*/ && KeyPos == 10 /*- */))) {
       state2 = 4;
       LOG_DBG("      (RHS key pressed)");
       LOG_DBG("----- Next state: ALA2.%d -----", state2);
