@@ -72,7 +72,7 @@ static void conditional_layer_deactivate(int8_t layer) {
     }
 }
 
-#define REQUIRE_PRIOR_IDLE_MS 130
+#define REQUIRE_PRIOR_IDLE_MS 50
 
 static bool is_quick_tap(int64_t timestamp) {
     return (last_tapped_timestamp + REQUIRE_PRIOR_IDLE_MS) > timestamp;
