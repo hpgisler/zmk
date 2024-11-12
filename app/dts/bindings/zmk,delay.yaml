@@ -1,0 +1,17 @@
+# Copyright (c) 2020, The ZMK Contributors
+# SPDX-License-Identifier: MIT
+
+description: Delay key-presses for all non-layer key positions
+
+compatible: "zmk,delay"
+
+child-binding:
+  description: "A key-press delay"
+
+  properties:
+    layer-key-positions:
+      type: array
+      required: true
+    timeout-ms:
+      type: int
+      default: 50
