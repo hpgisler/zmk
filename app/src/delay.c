@@ -35,10 +35,6 @@ struct delay_cfg {
   int32_t layer_key_positions[];
 };
 
-struct delayed_position_press {
-    struct zmk_position_state_changed_event event;
-};
-
 struct delay_cfg *delay_config;
 
 struct {
@@ -46,29 +42,20 @@ struct {
     // theoretical limit, can be reached only
     // if typing is very fast or delay is very large 
     // array: sort order ascending according key_positions_pressed timestamp (occurrence)
-    struct delayed_position_press kpp[CONFIG_ZMK_DELAY_MAX_KEY_POSITIONS_DELAYABLE];
-    struct delayed_position_press *oldest, *next;
+    struct zmk_position_state_changed_event ev[CONFIG_ZMK_DELAY_MAX_KEY_POSITIONS_DELAYABLE];
+    struct zmk_position_state_changed_event *oldest, *next;
 } past_presses;
-
 
 struct k_work_delayable timeout_task;
 
-static void advance(struct delayed_position_press** it);
-static void recede(struct delayed_position_press** it);
+static void advance(struct zmk_position_state_changed_event** it);
+static void recede(struct zmk_position_state_changed_event** it);
 
 
 static int initialize_delay(struct delay_cfg *delay_cfg) {
   // I assume here, that only one delay config exists on keymap file
   delay_config = delay_cfg;
     return 0;
-}
-
-// hgi: not used anymore?
-static int64_t oldest_keypress_timestamp() {
-  if (past_presses.oldest) {
-    return past_presses.oldest->event.data.timestamp;
-  }
-  return LLONG_MAX;
 }
 
 static int cleanup();
@@ -81,7 +68,7 @@ static int capture_pressed_key(const struct zmk_position_state_changed *evdata) 
             CONFIG_ZMK_DELAY_MAX_KEY_POSITIONS_DELAYABLE);
     return ZMK_EV_EVENT_BUBBLE;
   }
-  past_presses.next->event = copy_raised_zmk_position_state_changed(evdata);
+  *past_presses.next = copy_raised_zmk_position_state_changed(evdata);
   if (past_presses.oldest == NULL) {
     past_presses.oldest = past_presses.next;
   }
@@ -93,7 +80,7 @@ static bool release_oldest_of_past_presses() {
   if (!past_presses.oldest) {
     return false;
   }
-  ZMK_EVENT_RAISE_AFTER(past_presses.oldest->event, delay);
+  ZMK_EVENT_RAISE_AFTER(*past_presses.oldest, delay);
   advance(&past_presses.oldest);
   if (past_presses.oldest == past_presses.next)
     past_presses.oldest = NULL;
@@ -106,27 +93,27 @@ static void release_captured_key_presses(struct zmk_position_state_changed *evda
     LOG_ERR("No captured key position event to release; ring buffer is empty");
     return;
   }
-  struct delayed_position_press *it_released = past_presses.next;
+  struct zmk_position_state_changed_event *it_released = past_presses.next;
   do {
     recede(&it_released);
-  } while (it_released->event.data.position != evdata->position);
+  } while (it_released->data.position != evdata->position);
   while (true) {
     if (!release_oldest_of_past_presses() || past_presses.oldest == it_released)
       break;
   };
 }
 
-static void advance(struct delayed_position_press** it) {
+static void advance(struct zmk_position_state_changed_event** it) {
   (*it)++;
-  if (*it == &past_presses.kpp[CONFIG_ZMK_DELAY_MAX_KEY_POSITIONS_DELAYABLE]) {
-    *it = &past_presses.kpp[0];
+  if (*it == &past_presses.ev[CONFIG_ZMK_DELAY_MAX_KEY_POSITIONS_DELAYABLE]) {
+    *it = &past_presses.ev[0];
   }
 }
 
-static void recede(struct delayed_position_press** it) {
+static void recede(struct zmk_position_state_changed_event** it) {
   (*it)--;
-  if (*it < &past_presses.kpp[0]) {
-    *it = &past_presses.kpp[CONFIG_ZMK_DELAY_MAX_KEY_POSITIONS_DELAYABLE - 1];
+  if (*it < &past_presses.ev[0]) {
+    *it = &past_presses.ev[CONFIG_ZMK_DELAY_MAX_KEY_POSITIONS_DELAYABLE - 1];
   }
 }
 
@@ -140,7 +127,7 @@ static void update_timeout_task() {
     cleanup();
     return;
   }
-  int64_t time_since_oldest_ms = k_uptime_get() - past_presses.oldest->event.data.timestamp;
+  int64_t time_since_oldest_ms = k_uptime_get() - past_presses.oldest->data.timestamp;
   int64_t due_in_ms = delay_config->timeout_ms - time_since_oldest_ms;
   if (due_in_ms > 1) {
     k_work_schedule(&timeout_task, K_MSEC(due_in_ms));
@@ -210,7 +197,7 @@ DT_INST_FOREACH_CHILD(0, DELAY_INST)
 
 static int delay_init() {
     k_work_init_delayable(&timeout_task, delay_timeout_handler);
-    past_presses.next = &past_presses.kpp[0]; 
+    past_presses.next = &past_presses.ev[0]; 
     past_presses.oldest = NULL; 
     DT_INST_FOREACH_CHILD(0, INITIALIZE_DELAY);
     return 0;
