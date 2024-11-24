@@ -1,4 +1,4 @@
 CompileFlags:
   CompilationDatabase: ./app/build/left/ 
-  Remove: [-fno-reorder-functions, -mfp16-format=ieee]
+  Remove: [-fno-reorder-functions, -mfp16-format=ieee, -fno-printf-return-value]
   
