@@ -27,6 +27,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #define CONFIG_ZMK_DELAY_MAX_KEY_POSITIONS_DELAYABLE 12
 
+const struct zmk_listener zmk_listener_delay;
+
 struct delay_cfg {
   int32_t timeout_ms;
   int32_t layer_key_positions_len;
@@ -52,7 +54,6 @@ struct {
 
 
 struct k_work_delayable timeout_task;
-
 
 static void advance(struct delayed_position_press** it);
 static void recede(struct delayed_position_press** it);
@@ -88,7 +89,7 @@ static int capture_pressed_key(const zmk_event_t *ev, struct zmk_position_state_
   if (past_presses.oldest == NULL) {
     past_presses.oldest = past_presses.next;
   }
-  advance(past_presses.next);
+  advance(&past_presses.next);
   return ZMK_EV_EVENT_CAPTURED;
 }
 
@@ -111,7 +112,7 @@ static void release_captured_key_presses(struct zmk_position_state_changed *data
   }
   struct delayed_position_press *it_released = past_presses.next;
   do {
-    recede(&it_released)
+    recede(&it_released);
   } while (it_released->position != data->position);
   while (true) {
     if (!release_oldest_of_past_presses() || past_presses.oldest == it_released)
@@ -120,23 +121,22 @@ static void release_captured_key_presses(struct zmk_position_state_changed *data
 }
 
 static void advance(struct delayed_position_press** it) {
-  *it++;
+  (*it)++;
   if (*it == &past_presses.kpp[CONFIG_ZMK_DELAY_MAX_KEY_POSITIONS_DELAYABLE]) {
     *it = &past_presses.kpp[0];
   }
 }
 
 static void recede(struct delayed_position_press** it) {
-  *it--;
+  (*it)--;
   if (*it < &past_presses.kpp[0]) {
-    *it = past_presses.kpp[CONFIG_ZMK_DELAY_MAX_KEY_POSITIONS_DELAYABLE - 1];
+    *it = &past_presses.kpp[CONFIG_ZMK_DELAY_MAX_KEY_POSITIONS_DELAYABLE - 1];
   }
 }
 
-const struct zmk_listener zmk_listener_delay;
 
 static int cleanup() {
-    k_work_cancel_delayable(&timeout_task);
+    return k_work_cancel_delayable(&timeout_task);
 }
 
 static void update_timeout_task() {
@@ -146,11 +146,11 @@ static void update_timeout_task() {
   }
   int64_t time_since_oldest_ms = k_uptime_get() - past_presses.oldest->timestamp;
   int64_t due_in_ms = delay_config->timeout_ms - time_since_oldest_ms;
-  if (task_due_in_ms > 1) {
-    k_work_schedule(&timeout_task, task_due_in_ms);
+  if (due_in_ms > 1) {
+    k_work_schedule(&timeout_task, K_MSEC(due_in_ms));
     return;
   }
-  k_work_schedule(&timeout_task, 1); // fallback
+  k_work_schedule(&timeout_task, K_MSEC(1)); // fallback
 }
 
 bool is_delayed_keypos(struct zmk_position_state_changed *data) {
