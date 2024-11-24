@@ -162,7 +162,6 @@ bool is_delayed_keypos(struct zmk_position_state_changed *data) {
   return true;
 }
 
-
 static int position_state_down(const zmk_event_t *ev, struct zmk_position_state_changed *data) {
   if (!is_delayed_keypos(data)) {
     return ZMK_EV_EVENT_BUBBLE;
