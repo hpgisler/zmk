@@ -36,7 +36,7 @@ struct delay_cfg {
 };
 
 struct delayed_position_press {
-    const zmk_event_t *event;
+    struct zmk_position_state_changed_event event;
     int64_t timestamp; 
     uint32_t position;
 };
@@ -75,7 +75,7 @@ static int64_t oldest_keypress_timestamp() {
 
 static int cleanup();
 
-static int capture_pressed_key(const zmk_event_t *ev, struct zmk_position_state_changed *data) {
+static int capture_pressed_key(const struct zmk_position_state_changed *evdata) {
   if (past_presses.next == past_presses.oldest) {
     // no space left in ring buffer
     LOG_ERR("Unable to delay position down event; already %d delayed. Increase "
@@ -83,9 +83,9 @@ static int capture_pressed_key(const zmk_event_t *ev, struct zmk_position_state_
             CONFIG_ZMK_DELAY_MAX_KEY_POSITIONS_DELAYABLE);
     return ZMK_EV_EVENT_BUBBLE;
   }
-  past_presses.next->event = ev;
-  past_presses.next->timestamp = data->timestamp;
-  past_presses.next->position = data->position;
+  past_presses.next->event = copy_raised_zmk_position_state_changed(evdata);
+  past_presses.next->timestamp = evdata->timestamp;
+  past_presses.next->position = evdata->position;
   if (past_presses.oldest == NULL) {
     past_presses.oldest = past_presses.next;
   }
@@ -104,7 +104,7 @@ static bool release_oldest_of_past_presses() {
   return true;
 }
 
-static void release_captured_key_presses(struct zmk_position_state_changed *data) {
+static void release_captured_key_presses(struct zmk_position_state_changed *evdata) {
   if (past_presses.oldest == NULL) {
     // no space left in ring buffer
     LOG_ERR("No captured key position event to release; ring buffer is empty");
@@ -113,7 +113,7 @@ static void release_captured_key_presses(struct zmk_position_state_changed *data
   struct delayed_position_press *it_released = past_presses.next;
   do {
     recede(&it_released);
-  } while (it_released->position != data->position);
+  } while (it_released->position != evdata->position);
   while (true) {
     if (!release_oldest_of_past_presses() || past_presses.oldest == it_released)
       break;
@@ -153,27 +153,27 @@ static void update_timeout_task() {
   k_work_schedule(&timeout_task, K_MSEC(1)); // fallback
 }
 
-bool is_delayed_keypos(struct zmk_position_state_changed *data) {
+bool is_delayed_keypos(struct zmk_position_state_changed *evdata) {
   for (int p = 0; p < delay_config->layer_key_positions_len ; p++) {
-    if (data->position == delay_config->layer_key_positions[p]) {
+    if (evdata->position == delay_config->layer_key_positions[p]) {
       return false;
     }
   }
   return true;
 }
 
-static int position_state_down(const zmk_event_t *ev, struct zmk_position_state_changed *data) {
-  if (!is_delayed_keypos(data)) {
+static int position_state_down(struct zmk_position_state_changed *evdata) {
+  if (!is_delayed_keypos(evdata)) {
     return ZMK_EV_EVENT_BUBBLE;
   }
-  int evt = capture_pressed_key(ev, data);
+  int evt = capture_pressed_key(evdata);
   update_timeout_task();
   return evt;
 }
 
-static int position_state_up(const zmk_event_t *ev, struct zmk_position_state_changed *data) {
-  if (is_delayed_keypos(data)) {
-    release_captured_key_presses(data);
+static int position_state_up(struct zmk_position_state_changed *evdata) {
+  if (is_delayed_keypos(evdata)) {
+    release_captured_key_presses(evdata);
   }
   return ZMK_EV_EVENT_BUBBLE;
 }
@@ -187,14 +187,14 @@ static void delay_timeout_handler(struct k_work *item) {
 }
 
 static int position_state_changed_listener(const zmk_event_t *ev) {
-    struct zmk_position_state_changed *data = as_zmk_position_state_changed(ev);
-    if (data == NULL) {
+    struct zmk_position_state_changed *evdata = as_zmk_position_state_changed(ev);
+    if (evdata == NULL) {
         return 0;
     }
-    if (data->state) { // keydown
-        return position_state_down(ev, data);
-    } else { // keyup
-        return position_state_up(ev, data);
+    if (evdata->state) { // key down
+        return position_state_down(evdata);
+    } else { // key up
+        return position_state_up(evdata);
     }
 }
 
