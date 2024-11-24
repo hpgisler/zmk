@@ -37,8 +37,6 @@ struct delay_cfg {
 
 struct delayed_position_press {
     struct zmk_position_state_changed_event event;
-    int64_t timestamp; 
-    uint32_t position;
 };
 
 struct delay_cfg *delay_config;
@@ -68,7 +66,7 @@ static int initialize_delay(struct delay_cfg *delay_cfg) {
 // hgi: not used anymore?
 static int64_t oldest_keypress_timestamp() {
   if (past_presses.oldest) {
-    return past_presses.oldest->timestamp;
+    return past_presses.oldest->event.data.timestamp;
   }
   return LLONG_MAX;
 }
@@ -84,8 +82,6 @@ static int capture_pressed_key(const struct zmk_position_state_changed *evdata) 
     return ZMK_EV_EVENT_BUBBLE;
   }
   past_presses.next->event = copy_raised_zmk_position_state_changed(evdata);
-  past_presses.next->timestamp = evdata->timestamp;
-  past_presses.next->position = evdata->position;
   if (past_presses.oldest == NULL) {
     past_presses.oldest = past_presses.next;
   }
@@ -113,7 +109,7 @@ static void release_captured_key_presses(struct zmk_position_state_changed *evda
   struct delayed_position_press *it_released = past_presses.next;
   do {
     recede(&it_released);
-  } while (it_released->position != evdata->position);
+  } while (it_released->event.data.position != evdata->position);
   while (true) {
     if (!release_oldest_of_past_presses() || past_presses.oldest == it_released)
       break;
@@ -144,7 +140,7 @@ static void update_timeout_task() {
     cleanup();
     return;
   }
-  int64_t time_since_oldest_ms = k_uptime_get() - past_presses.oldest->timestamp;
+  int64_t time_since_oldest_ms = k_uptime_get() - past_presses.oldest->event.data.timestamp;
   int64_t due_in_ms = delay_config->timeout_ms - time_since_oldest_ms;
   if (due_in_ms > 1) {
     k_work_schedule(&timeout_task, K_MSEC(due_in_ms));
@@ -214,8 +210,8 @@ DT_INST_FOREACH_CHILD(0, DELAY_INST)
 
 static int delay_init() {
     k_work_init_delayable(&timeout_task, delay_timeout_handler);
-    delayed_position_presses.next = &delayed_position_presses.key_positions_pressed[0]; 
-    delayed_position_presses.oldest = NULL; 
+    past_presses.next = &past_presses.kpp[0]; 
+    past_presses.oldest = NULL; 
     DT_INST_FOREACH_CHILD(0, INITIALIZE_DELAY);
     return 0;
 }
