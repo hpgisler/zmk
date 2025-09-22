@@ -1,3 +1,5 @@
+#define DT_DRV_COMPAT zmk_pair_inhibitor
+
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/logging/log.h>
@@ -8,6 +10,8 @@
 #include <zmk/hid.h> // For sending key events
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
+
+#if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
 
 // DTS node definition for the main pair_inhibitors node.
 #define ZMK_DT_PAIR_INHIBITORS_NODE DT_PATH(pair_inhibitors)
@@ -62,8 +66,16 @@ struct pair_inhibitor_instance {
 // Array of all pair inhibitor instances
 static struct pair_inhibitor_instance pair_inhibitors[PAIR_INHIBITOR_COUNT];
 
+const struct zmk_listener zmk_listener_pair_inhibitor;
+
 // Forward declarations
 static void l_key_timeout_handler(struct k_work *work);
+
+static int pair_inhibitor_listener(const zmk_event_t *eh);
+
+// ZMK Event Manager listener and subscription setup
+ZMK_LISTENER(pair_inhibitor, pair_inhibitor_listener);
+ZMK_SUBSCRIPTION(pair_inhibitor, zmk_position_state_changed);
 
 // Helper to find the instance by L or H position
 static struct pair_inhibitor_instance *get_instance_by_l_pos(uint32_t pos) {
@@ -87,14 +99,17 @@ static struct pair_inhibitor_instance *get_instance_by_h_pos(uint32_t pos) {
 // Function to generate and bubble a position event
 static int bubble_position_event(uint32_t position, bool pressed) {
     struct zmk_position_state_changed event = {
-        .position = position,
-        .state = pressed,
-        .timestamp = k_uptime_get(),
+      .position = position,
+      .state = pressed,
+      .timestamp = k_uptime_get(),
     };
 
     struct zmk_position_state_changed_event dupe_ev =
       copy_raised_zmk_position_state_changed(&event);
-    return ZMK_EVENT_RAISE(dupe_ev);
+  
+    dupe_ev.header.event =  &zmk_event_zmk_position_state_changed;
+    return ZMK_EVENT_RAISE_AFTER(dupe_ev, pair_inhibitor);
+    // return ZMK_EVENT_RAISE(dupe_ev);
 }
 
 // Timeout handler for L-keys
@@ -107,12 +122,13 @@ static void l_key_timeout_handler(struct k_work *work) {
     if (instance->state == PAIR_INHIBITOR_STATE_L_PENDING_TIMEOUT) {
         LOG_DBG("L-key %d timeout, activating press", instance->l_pos);
         instance->state = PAIR_INHIBITOR_STATE_L_ACTIVE;
+        k_spin_unlock(&instance->lock, key);
         // Bubble the L-key press event
         bubble_position_event(instance->l_pos, true);
     } else {
         LOG_WRN("L-key %d timeout handler called in unexpected state %d", instance->l_pos, instance->state);
+        k_spin_unlock(&instance->lock, key);
     }
-    k_spin_unlock(&instance->lock, key);
 }
 
 
@@ -150,7 +166,7 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
     // Acquire lock for this instance to protect state
     k_spinlock_key_t key = k_spin_lock(&instance->lock);
 
-    LOG_DBG("Pair Inhibitor: Pos %d %s (L_pos %d, H_pos %d), State %d, L_phys_pressed %d", 
+    LOG_DBG("Pair Inhibitor: Pos %d %s (L_pos %d, H_pos %d), State %d, last L_phys_pressed state: %d", 
             position, is_pressed ? "pressed" : "released", instance->l_pos, instance->h_pos, 
             instance->state, instance->l_is_physically_pressed);
 
@@ -177,11 +193,11 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
             if (instance->state == PAIR_INHIBITOR_STATE_L_PENDING_TIMEOUT) {
                 // TODO, hgi: will probably not happen, because user is to slow for press/release <
                 // timeout, but should probably create press event in-between here and then do ZMK_EV_EVENT_BUBBLE 
-                LOG_DBG("L-key %d released: Cancelling timeout, discarding L-press", position);
+                LOG_DBG("L-key %d released: Cancelling timeout, activating L-press", position);
                 k_work_cancel_delayable(&instance->work_item);
                 instance->state = PAIR_INHIBITOR_STATE_IDLE;
-                bubble_position_event(instance->l_pos, true); // hgi: Generate and bubble a synthetic L-press event
                 k_spin_unlock(&instance->lock, key);
+                bubble_position_event(instance->l_pos, true); // hgi: Generate and bubble a synthetic L-press event
                 return ZMK_EV_EVENT_BUBBLE; // hgi: Bubble L-key release normally
             } else if (instance->state == PAIR_INHIBITOR_STATE_L_ACTIVE) {
                 LOG_DBG("L-key %d released: Bubbling L-release", position);
@@ -208,13 +224,14 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
                 LOG_DBG("H-key %d pressed: Stopping L-key %d timeout, inhibiting L-press", position, instance->l_pos);
                 k_work_cancel_delayable(&instance->work_item);
                 instance->state = PAIR_INHIBITOR_STATE_L_INHIBITED;
+                k_spin_unlock(&instance->lock, key);
             } else if (instance->state == PAIR_INHIBITOR_STATE_L_ACTIVE) {
                 LOG_DBG("H-key %d pressed: L-key %d active, generating L-release", position, instance->l_pos);
                 instance->state = PAIR_INHIBITOR_STATE_L_INHIBITED;
+                k_spin_unlock(&instance->lock, key);
                 bubble_position_event(instance->l_pos, false); // Generate and bubble a synthetic L-release event
             }
             // In other states (IDLE, L_INHIBITED), H-press is just bubbled normally.
-            k_spin_unlock(&instance->lock, key);
             return ZMK_EV_EVENT_BUBBLE; // Always bubble H-key press
         } else { // H-key released
             if (instance->state == PAIR_INHIBITOR_STATE_L_INHIBITED) {
@@ -231,10 +248,6 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
     k_spin_unlock(&instance->lock, key);
     return ZMK_EV_EVENT_BUBBLE;
 }
-
-// ZMK Event Manager listener and subscription setup
-ZMK_LISTENER(pair_inhibitor, pair_inhibitor_listener);
-ZMK_SUBSCRIPTION(pair_inhibitor, zmk_position_state_changed);
 
 // Macro to initialize individual pair inhibitor instance structs from DTS
 #define PI_INIT_INSTANCE_STRUCT(node_id)                                                  \
@@ -270,3 +283,5 @@ static int pair_inhibitor_module_init(void) {
 
 // Register the module initialization function with Zephyr's system initialization
 SYS_INIT(pair_inhibitor_module_init, APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT);
+
+#endif
