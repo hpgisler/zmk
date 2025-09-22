@@ -20,24 +20,12 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #error "No 'pair_inhibitors' node found in devicetree. Please define it in your .dts/.overlay file."
 #endif
 
-// Count the number of individual pair-inhibitor instances defined in DTS
-//#define PAIR_INHIBITOR_COUNT DT_NUM_CHILDREN(ZMK_DT_PAIR_INHIBITORS_NODE)
-
-// ****************************************************************************************************
-// hgi: above probably will not work, instead use the following?: (update zephyr)
-//#define PAIR_INHIBITOR_COUNT DT_CHILD_NUM(ZMK_DT_PAIR_INHIBITORS_NODE)
-
-//#define PAIR_INHIBITOR_COUNT DT_NODE_CHILD_COUNT(ZMK_DT_PAIR_INHIBITORS_NODE)
-
-
-
 // Helper macro to count child nodes using DT_FOREACH_CHILD_STATUS_OK_VARGS
 #define CHILD_COUNTER(node_id, i) 1 +
 
 // Count the number of individual pair-inhibitor instances defined in DTS
 // For ZMK v3.5, use DT_FOREACH_CHILD_STATUS_OK_VARGS with a counter macro.
 #define PAIR_INHIBITOR_COUNT DT_FOREACH_CHILD_STATUS_OKAY_VARGS(ZMK_DT_PAIR_INHIBITORS_NODE, CHILD_COUNTER) 0
-
 
 #if PAIR_INHIBITOR_COUNT == 0
 #error "No child nodes found under 'pair_inhibitors'. Define at least one pair_inhibitor_L_H node."
