@@ -60,7 +60,6 @@ struct pair_inhibitor_instance {
     // Tracks if the physical L key is currently down, regardless of its logical (bubbled) state.
     // Used to consume the actual physical L-release event if its press was discarded or synthesized.
     bool l_is_physically_pressed; 
-    struct k_spinlock lock;       // Protects state and l_is_physically_pressed
 };
 
 // Array of all pair inhibitor instances
@@ -117,17 +116,13 @@ static void l_key_timeout_handler(struct k_work *work) {
     struct k_work_delayable *dwork = k_work_delayable_from_work(work);
     struct pair_inhibitor_instance *instance = CONTAINER_OF(dwork, struct pair_inhibitor_instance, work_item);
 
-    k_spinlock_key_t key = k_spin_lock(&instance->lock);
-
     if (instance->state == PAIR_INHIBITOR_STATE_L_PENDING_TIMEOUT) {
         LOG_DBG("L-key %d timeout, activating press", instance->l_pos);
         instance->state = PAIR_INHIBITOR_STATE_L_ACTIVE;
-        k_spin_unlock(&instance->lock, key);
         // Bubble the L-key press event
         bubble_position_event(instance->l_pos, true);
     } else {
         LOG_WRN("L-key %d timeout handler called in unexpected state %d", instance->l_pos, instance->state);
-        k_spin_unlock(&instance->lock, key);
     }
 }
 
@@ -163,9 +158,6 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
         return ZMK_EV_EVENT_BUBBLE;
     }
     
-    // Acquire lock for this instance to protect state
-    k_spinlock_key_t key = k_spin_lock(&instance->lock);
-
     LOG_DBG("Pair Inhibitor: Pos %d %s (L_pos %d, H_pos %d), State %d, last L_phys_pressed state: %d", 
             position, is_pressed ? "pressed" : "released", instance->l_pos, instance->h_pos, 
             instance->state, instance->l_is_physically_pressed);
@@ -177,14 +169,12 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
                 instance->state = PAIR_INHIBITOR_STATE_L_PENDING_TIMEOUT;
                 instance->l_is_physically_pressed = true; // Mark physical L as pressed
                 k_work_reschedule(&instance->work_item, K_MSEC(instance->timeout_ms));
-                k_spin_unlock(&instance->lock, key);
                 return ZMK_EV_EVENT_HANDLED; // Consume L-key press (don't bubble yet)
             } else { 
                 // L is already in a state (PENDING_TIMEOUT, ACTIVE, or INHIBITED).
                 // Any additional physical press should be consumed, but update physical state.
                 instance->l_is_physically_pressed = true;
                 LOG_DBG("L-key %d pressed: Already in state %d, consuming", position, instance->state);
-                k_spin_unlock(&instance->lock, key);
                 return ZMK_EV_EVENT_HANDLED;
             }
         } else { // L-key released
@@ -196,25 +186,21 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
                 LOG_DBG("L-key %d released: Cancelling timeout, activating L-press", position);
                 k_work_cancel_delayable(&instance->work_item);
                 instance->state = PAIR_INHIBITOR_STATE_IDLE;
-                k_spin_unlock(&instance->lock, key);
                 bubble_position_event(instance->l_pos, true); // hgi: Generate and bubble a synthetic L-press event
                 return ZMK_EV_EVENT_BUBBLE; // hgi: Bubble L-key release normally
             } else if (instance->state == PAIR_INHIBITOR_STATE_L_ACTIVE) {
                 LOG_DBG("L-key %d released: Bubbling L-release", position);
                 instance->state = PAIR_INHIBITOR_STATE_IDLE;
-                k_spin_unlock(&instance->lock, key);
                 return ZMK_EV_EVENT_BUBBLE; // Bubble L-key release normally
             } else if (instance->state == PAIR_INHIBITOR_STATE_L_INHIBITED) {
                 // hgi: this will never happen with my H/L switch arrangement
                 LOG_DBG("L-key %d released: Inhibited, consuming L-release", position);
                 // State remains L_INHIBITED until H is released. Physical L-release is consumed.
-                k_spin_unlock(&instance->lock, key);
                 return ZMK_EV_EVENT_HANDLED; 
             } else if (instance->state == PAIR_INHIBITOR_STATE_IDLE) {
                 // This scenario means L became IDLE while still physically pressed (e.g., H released).
                 // This physical L-release needs to be consumed.
                 LOG_DBG("L-key %d released: Currently IDLE, consuming (physical L-key release)", position);
-                k_spin_unlock(&instance->lock, key);
                 return ZMK_EV_EVENT_HANDLED;
             }
         }
@@ -224,11 +210,9 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
                 LOG_DBG("H-key %d pressed: Stopping L-key %d timeout, inhibiting L-press", position, instance->l_pos);
                 k_work_cancel_delayable(&instance->work_item);
                 instance->state = PAIR_INHIBITOR_STATE_L_INHIBITED;
-                k_spin_unlock(&instance->lock, key);
             } else if (instance->state == PAIR_INHIBITOR_STATE_L_ACTIVE) {
                 LOG_DBG("H-key %d pressed: L-key %d active, generating L-release", position, instance->l_pos);
                 instance->state = PAIR_INHIBITOR_STATE_L_INHIBITED;
-                k_spin_unlock(&instance->lock, key);
                 bubble_position_event(instance->l_pos, false); // Generate and bubble a synthetic L-release event
             }
             // In other states (IDLE, L_INHIBITED), H-press is just bubbled normally.
@@ -239,13 +223,11 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
                 instance->state = PAIR_INHIBITOR_STATE_IDLE;
             }
             // In other states (IDLE, L_PENDING_TIMEOUT, L_ACTIVE), H-release is just bubbled normally.
-            k_spin_unlock(&instance->lock, key);
             return ZMK_EV_EVENT_BUBBLE; // Always bubble H-key release
         }
     }
     
     // Should not reach here if logic is exhaustive for relevant keys.
-    k_spin_unlock(&instance->lock, key);
     return ZMK_EV_EVENT_BUBBLE;
 }
 
