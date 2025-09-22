@@ -1,0 +1,14 @@
+  description: My-Module conditionally inhibit Ln key-presses, if Hn key-presses occurs within timeout time.
+
+  compatible: "zmk,pair-inhibitor"
+
+  child-binding:
+    description: "A conditional inhibitor"
+
+    properties:
+      key-positions-pair:
+        type: array
+        required: true
+      timeout-ms:
+        type: int
+        default: 10

@@ -1,6 +1,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/devicetree.h>
 
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
@@ -16,12 +17,22 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #endif
 
 // Count the number of individual pair-inhibitor instances defined in DTS
-#define PAIR_INHIBITOR_COUNT DT_NUM_CHILDREN(ZMK_DT_PAIR_INHIBITORS_NODE)
+//#define PAIR_INHIBITOR_COUNT DT_NUM_CHILDREN(ZMK_DT_PAIR_INHIBITORS_NODE)
 
 // ****************************************************************************************************
 // hgi: above probably will not work, instead use the following?: (update zephyr)
-#define PAIR_INHIBITOR_COUNT DT_CHILD_NUM(ZMK_DT_PAIR_INHIBITORS_NODE)
+//#define PAIR_INHIBITOR_COUNT DT_CHILD_NUM(ZMK_DT_PAIR_INHIBITORS_NODE)
 
+//#define PAIR_INHIBITOR_COUNT DT_NODE_CHILD_COUNT(ZMK_DT_PAIR_INHIBITORS_NODE)
+
+
+
+// Helper macro to count child nodes using DT_FOREACH_CHILD_STATUS_OK_VARGS
+#define CHILD_COUNTER(node_id, i) 1 +
+
+// Count the number of individual pair-inhibitor instances defined in DTS
+// For ZMK v3.5, use DT_FOREACH_CHILD_STATUS_OK_VARGS with a counter macro.
+#define PAIR_INHIBITOR_COUNT DT_FOREACH_CHILD_STATUS_OKAY_VARGS(ZMK_DT_PAIR_INHIBITORS_NODE, CHILD_COUNTER) 0
 
 
 #if PAIR_INHIBITOR_COUNT == 0
@@ -80,7 +91,10 @@ static int bubble_position_event(uint32_t position, bool pressed) {
         .state = pressed,
         .timestamp = k_uptime_get(),
     };
-    return zmk_event_manager_from_position_state_changed(&event);
+
+    struct zmk_position_state_changed_event dupe_ev =
+      copy_raised_zmk_position_state_changed(&event);
+    return ZMK_EVENT_RAISE(dupe_ev);
 }
 
 // Timeout handler for L-keys
@@ -148,14 +162,14 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
                 instance->l_is_physically_pressed = true; // Mark physical L as pressed
                 k_work_reschedule(&instance->work_item, K_MSEC(instance->timeout_ms));
                 k_spin_unlock(&instance->lock, key);
-                return ZMK_EV_EVENT_CONSUMED; // Consume L-key press (don't bubble yet)
+                return ZMK_EV_EVENT_HANDLED; // Consume L-key press (don't bubble yet)
             } else { 
                 // L is already in a state (PENDING_TIMEOUT, ACTIVE, or INHIBITED).
                 // Any additional physical press should be consumed, but update physical state.
                 instance->l_is_physically_pressed = true;
                 LOG_DBG("L-key %d pressed: Already in state %d, consuming", position, instance->state);
                 k_spin_unlock(&instance->lock, key);
-                return ZMK_EV_EVENT_CONSUMED;
+                return ZMK_EV_EVENT_HANDLED;
             }
         } else { // L-key released
             instance->l_is_physically_pressed = false; // Physical release occurred
@@ -179,13 +193,13 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
                 LOG_DBG("L-key %d released: Inhibited, consuming L-release", position);
                 // State remains L_INHIBITED until H is released. Physical L-release is consumed.
                 k_spin_unlock(&instance->lock, key);
-                return ZMK_EV_EVENT_CONSUMED; 
+                return ZMK_EV_EVENT_HANDLED; 
             } else if (instance->state == PAIR_INHIBITOR_STATE_IDLE) {
                 // This scenario means L became IDLE while still physically pressed (e.g., H released).
                 // This physical L-release needs to be consumed.
                 LOG_DBG("L-key %d released: Currently IDLE, consuming (physical L-key release)", position);
                 k_spin_unlock(&instance->lock, key);
-                return ZMK_EV_EVENT_CONSUMED;
+                return ZMK_EV_EVENT_HANDLED;
             }
         }
     } else if (is_h_key) {
