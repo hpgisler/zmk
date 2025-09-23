@@ -1,13 +1,12 @@
 #define DT_DRV_COMPAT zmk_pair_inhibitor
 
-#include <zephyr/kernel.h>
 #include <zephyr/device.h>
-#include <zephyr/logging/log.h>
 #include <zephyr/devicetree.h>
-
+#include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
-#include <zmk/hid.h> // For sending key events
+#include <zmk/hid.h>  // For sending key events
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
@@ -33,10 +32,10 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 // State for each pair inhibitor
 enum pair_inhibitor_state {
-    PAIR_INHIBITOR_STATE_IDLE,              // Neither L nor H is actively involved.
-    PAIR_INHIBITOR_STATE_L_PENDING_TIMEOUT, // L-key pressed, timer started, waiting for L-key timeout or L-key release or H-key press
-    PAIR_INHIBITOR_STATE_L_ACTIVE,          // L-key press bubbled, waiting for L-key release or H-key press.
-    PAIR_INHIBITOR_STATE_L_INHIBITED,       // L-key press inhibited by H-key press, waiting for H-key release (physical L-key release will be discarded)
+    PAIR_INHIBITOR_STATE_IDLE,               // Neither L nor H is actively involved.
+    PAIR_INHIBITOR_STATE_L_PENDING_TIMEOUT,  // L-key pressed, timer started, waiting for L-key timeout or L-key release or H-key press
+    PAIR_INHIBITOR_STATE_L_ACTIVE,           // L-key press bubbled, waiting for L-key release or H-key press.
+    PAIR_INHIBITOR_STATE_L_INHIBITED,        // L-key press inhibited by H-key press, waiting for H-key release (physical L-key release will be discarded)
 };
 
 struct pair_inhibitor_instance {
@@ -53,7 +52,8 @@ static struct pair_inhibitor_instance pair_inhibitors[PAIR_INHIBITOR_COUNT];
 // Forward declarations
 static int pair_inhibitor_listener(const zmk_event_t *eh);
 
-// ZMK Event Manager listener and subscription setup: hgi: must be defined BEFORE using module definition 'pair_inhibitor, e.g. in 'ZMK_EVENT_RAISE_AFTER(dupe_ev, pair_inhibitor); 
+// ZMK Event Manager listener and subscription setup:
+// hgi: must be defined BEFORE using module definition 'pair_inhibitor, e.g. in 'ZMK_EVENT_RAISE_AFTER(dupe_ev, pair_inhibitor);
 ZMK_LISTENER(pair_inhibitor, pair_inhibitor_listener);
 ZMK_SUBSCRIPTION(pair_inhibitor, zmk_position_state_changed);
 
@@ -79,15 +79,13 @@ static struct pair_inhibitor_instance *get_instance_by_h_pos(uint32_t pos) {
 // Function to generate and bubble a position event
 static int bubble_position_event(uint32_t position, bool pressed) {
     struct zmk_position_state_changed event = {
-      .position = position,
-      .state = pressed,
-      .timestamp = k_uptime_get(),
+        .position = position,
+        .state = pressed,
+        .timestamp = k_uptime_get(),
     };
 
-    struct zmk_position_state_changed_event dupe_ev =
-      copy_raised_zmk_position_state_changed(&event);
-  
-    dupe_ev.header.event =  &zmk_event_zmk_position_state_changed;
+    struct zmk_position_state_changed_event dupe_ev = copy_raised_zmk_position_state_changed(&event);
+    dupe_ev.header.event = &zmk_event_zmk_position_state_changed;
     return ZMK_EVENT_RAISE_AFTER(dupe_ev, pair_inhibitor);
 }
 
@@ -136,50 +134,48 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
         // Not a monitored key for any pair, bubble it up normally.
         return ZMK_EV_EVENT_BUBBLE;
     }
-    
-    LOG_DBG("Pair-inhibitor [L%d, H%d] triggered by Pos %d %s , (hitherto state: %d)", 
-            instance->l_pos, instance->h_pos, position, is_pressed ? "vvv pressed" : "^^^ released", instance->state);
+
+    LOG_DBG("Pair-inhibitor [L%d, H%d] triggered by Pos %d %s , (hitherto state: %d)", instance->l_pos, instance->h_pos, position,
+            is_pressed ? "vvv pressed" : "^^^ released", instance->state);
 
     if (is_l_key) {
-        if (is_pressed) { // L-key pressed
+        if (is_pressed) {  // L-key pressed
             if (instance->state == PAIR_INHIBITOR_STATE_IDLE) {
                 LOG_DBG("L-key %d pressed: Starting timeout", position);
                 instance->state = PAIR_INHIBITOR_STATE_L_PENDING_TIMEOUT;
                 k_work_reschedule(&instance->work_item, K_MSEC(instance->timeout_ms));
-                return ZMK_EV_EVENT_HANDLED; // Consume L-key press (don't bubble yet)
-            } else { 
-                // L is already in a state (PENDING_TIMEOUT, ACTIVE, or INHIBITED).
-                // Any additional physical press should be consumed, but update physical state.
+                return ZMK_EV_EVENT_HANDLED;  // Consume L-key press (don't bubble yet)
+            } else {
+                // L is already in a state (PENDING_TIMEOUT, ACTIVE, or INHIBITED). Any additional physical press should be consumed, but update physical state.
                 LOG_DBG("L-key %d pressed: Already in state %d, consuming", position, instance->state);
                 return ZMK_EV_EVENT_HANDLED;
             }
-        } else { // L-key released
+        } else {  // L-key released
             if (instance->state == PAIR_INHIBITOR_STATE_L_PENDING_TIMEOUT) {
-                // TODO, hgi: will probably not happen, because user is to slow for press/release <
-                // timeout, but should probably create press event in-between here and then do ZMK_EV_EVENT_BUBBLE 
+                // hgi: will probably not happen, because user is to slow for press/release, but create press/release event nevertheless
                 LOG_DBG("L-key %d released: Cancelling timeout, activating L-press", position);
                 k_work_cancel_delayable(&instance->work_item);
                 instance->state = PAIR_INHIBITOR_STATE_IDLE;
-                bubble_position_event(instance->l_pos, true); // hgi: Generate and bubble a synthetic L-press event
-                return ZMK_EV_EVENT_BUBBLE; // hgi: Bubble L-key release normally
+                // hgi: Generate and bubble a synthetic L-press event
+                bubble_position_event(instance->l_pos, true);
+                return ZMK_EV_EVENT_BUBBLE;  // hgi: Bubble L-key release normally
             } else if (instance->state == PAIR_INHIBITOR_STATE_L_ACTIVE) {
                 LOG_DBG("L-key %d released: Bubbling L-release", position);
                 instance->state = PAIR_INHIBITOR_STATE_IDLE;
-                return ZMK_EV_EVENT_BUBBLE; // Bubble L-key release normally
+                return ZMK_EV_EVENT_BUBBLE;  // Bubble L-key release normally
             } else if (instance->state == PAIR_INHIBITOR_STATE_L_INHIBITED) {
                 // hgi: this will never happen with my H/L switch arrangement
                 LOG_DBG("L-key %d released: Inhibited, consuming L-release", position);
                 // State remains L_INHIBITED until H is released. Physical L-release is consumed.
-                return ZMK_EV_EVENT_HANDLED; 
+                return ZMK_EV_EVENT_HANDLED;
             } else if (instance->state == PAIR_INHIBITOR_STATE_IDLE) {
-                // This scenario means L became IDLE while still physically pressed (e.g., H released).
-                // This physical L-release needs to be consumed.
+                // This scenario means L became IDLE while still physically pressed (e.g., H released). This physical L-release needs to be consumed.
                 LOG_DBG("L-key %d released: Currently IDLE, consuming (physical L-key release)", position);
                 return ZMK_EV_EVENT_HANDLED;
             }
         }
     } else if (is_h_key) {
-        if (is_pressed) { // H-key pressed
+        if (is_pressed) {  // H-key pressed
             if (instance->state == PAIR_INHIBITOR_STATE_L_PENDING_TIMEOUT) {
                 LOG_DBG("H-key %d pressed: Stopping L-key %d timeout, inhibiting L-press", position, instance->l_pos);
                 k_work_cancel_delayable(&instance->work_item);
@@ -187,51 +183,48 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
             } else if (instance->state == PAIR_INHIBITOR_STATE_L_ACTIVE) {
                 LOG_DBG("H-key %d pressed: L-key %d active, generating L-release", position, instance->l_pos);
                 instance->state = PAIR_INHIBITOR_STATE_L_INHIBITED;
-                bubble_position_event(instance->l_pos, false); // Generate and bubble a synthetic L-release event
+                bubble_position_event(instance->l_pos,
+                                      false);  // Generate and bubble a synthetic L-release event
             }
             // In other states (IDLE, L_INHIBITED), H-press is just bubbled normally.
-            return ZMK_EV_EVENT_BUBBLE; // Always bubble H-key press
-        } else { // H-key released
+            return ZMK_EV_EVENT_BUBBLE;  // Always bubble H-key press
+        } else {                         // H-key released
             if (instance->state == PAIR_INHIBITOR_STATE_L_INHIBITED) {
                 LOG_DBG("H-key %d released: L-key %d was inhibited, now IDLE", position, instance->l_pos);
                 instance->state = PAIR_INHIBITOR_STATE_IDLE;
             }
             // In other states (IDLE, L_PENDING_TIMEOUT, L_ACTIVE), H-release is just bubbled normally.
-            return ZMK_EV_EVENT_BUBBLE; // Always bubble H-key release
+            return ZMK_EV_EVENT_BUBBLE;  // Always bubble H-key release
         }
     }
-    
+
     // Should not reach here if logic is exhaustive for relevant keys.
     return ZMK_EV_EVENT_BUBBLE;
 }
 
 // Macro to initialize individual pair inhibitor instance structs from DTS
-#define PI_INIT_INSTANCE_STRUCT(node_id)                                                  \
-    {                                                                                     \
-        .l_pos = DT_PROP_BY_IDX(node_id, key_positions_pair, 0),                          \
-        .h_pos = DT_PROP_BY_IDX(node_id, key_positions_pair, 1),                          \
-        .timeout_ms = DT_PROP_OR(node_id, timeout_ms, 10),                                \
-        .state = PAIR_INHIBITOR_STATE_IDLE,                                               \
+#define PI_INIT_INSTANCE_STRUCT(node_id)                         \
+    {                                                            \
+        .l_pos = DT_PROP_BY_IDX(node_id, key_positions_pair, 0), \
+        .h_pos = DT_PROP_BY_IDX(node_id, key_positions_pair, 1), \
+        .timeout_ms = DT_PROP_OR(node_id, timeout_ms, 10),       \
+        .state = PAIR_INHIBITOR_STATE_IDLE,                      \
     },
 
 // Initialize the static array of pair inhibitor instances using DTS data
-static struct pair_inhibitor_instance pair_inhibitors[PAIR_INHIBITOR_COUNT] = {
-    DT_FOREACH_CHILD(ZMK_DT_PAIR_INHIBITORS_NODE, PI_INIT_INSTANCE_STRUCT)
-};
+static struct pair_inhibitor_instance pair_inhibitors[PAIR_INHIBITOR_COUNT] = {DT_FOREACH_CHILD(ZMK_DT_PAIR_INHIBITORS_NODE, PI_INIT_INSTANCE_STRUCT)};
 
 // Module initialization function
 static int pair_inhibitor_module_init(void) {
     if (PAIR_INHIBITOR_COUNT == 0) {
         LOG_WRN("No pair inhibitor instances defined. Module is inactive.");
-        return 0; // Return success but inactive
+        return 0;  // Return success but inactive
     }
 
     LOG_DBG("Initializing %d pair inhibitor instances", PAIR_INHIBITOR_COUNT);
     for (size_t i = 0; i < PAIR_INHIBITOR_COUNT; ++i) {
         k_work_init_delayable(&pair_inhibitors[i].work_item, l_key_timeout_handler);
-        LOG_DBG("Instance %d: L_pos=%d, H_pos=%d, Timeout=%dms", i,
-                pair_inhibitors[i].l_pos, pair_inhibitors[i].h_pos,
-                pair_inhibitors[i].timeout_ms);
+        LOG_DBG("Instance %d: L_pos=%d, H_pos=%d, Timeout=%dms", i, pair_inhibitors[i].l_pos, pair_inhibitors[i].h_pos, pair_inhibitors[i].timeout_ms);
     }
     return 0;
 }
