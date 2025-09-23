@@ -1,0 +1,11 @@
+BasedOnStyle: Google
+
+# Set the column limit for code.
+ColumnLimit: 160
+
+# The number of spaces to use for indentation.
+IndentWidth: 4
+
+# The number of spaces to use for tab characters (if tabs are used for indentation).
+TabWidth: 4
+
