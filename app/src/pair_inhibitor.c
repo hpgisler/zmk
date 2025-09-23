@@ -34,9 +34,9 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 // State for each pair inhibitor
 enum pair_inhibitor_state {
     PAIR_INHIBITOR_STATE_IDLE,              // Neither L nor H is actively involved.
-    PAIR_INHIBITOR_STATE_L_PENDING_TIMEOUT, // L-key pressed, timer started, waiting for H or timeout.
-    PAIR_INHIBITOR_STATE_L_ACTIVE,          // L-key press bubbled, waiting for L release or H press.
-    PAIR_INHIBITOR_STATE_L_INHIBITED,       // L-key press inhibited by H-key, physical L-release is consumed.
+    PAIR_INHIBITOR_STATE_L_PENDING_TIMEOUT, // L-key pressed, timer started, waiting for L-key timeout or L-key release or H-key press
+    PAIR_INHIBITOR_STATE_L_ACTIVE,          // L-key press bubbled, waiting for L-key release or H-key press.
+    PAIR_INHIBITOR_STATE_L_INHIBITED,       // L-key press inhibited by H-key press, waiting for H-key release (physical L-key release will be discarded)
 };
 
 struct pair_inhibitor_instance {
@@ -45,26 +45,19 @@ struct pair_inhibitor_instance {
     int32_t timeout_ms;
     struct k_work_delayable work_item;
     enum pair_inhibitor_state state;
-    // Tracks if the physical L key is currently down, regardless of its logical (bubbled) state.
-    // Used to consume the actual physical L-release event if its press was discarded or synthesized.
-    bool l_is_physically_pressed; 
 };
 
 // Array of all pair inhibitor instances
 static struct pair_inhibitor_instance pair_inhibitors[PAIR_INHIBITOR_COUNT];
 
-const struct zmk_listener zmk_listener_pair_inhibitor;
-
 // Forward declarations
-static void l_key_timeout_handler(struct k_work *work);
-
 static int pair_inhibitor_listener(const zmk_event_t *eh);
 
-// ZMK Event Manager listener and subscription setup
+// ZMK Event Manager listener and subscription setup: hgi: must be defined BEFORE using module definition 'pair_inhibitor, e.g. in 'ZMK_EVENT_RAISE_AFTER(dupe_ev, pair_inhibitor); 
 ZMK_LISTENER(pair_inhibitor, pair_inhibitor_listener);
 ZMK_SUBSCRIPTION(pair_inhibitor, zmk_position_state_changed);
 
-// Helper to find the instance by L or H position
+// Helpers to find the instance by L or H position
 static struct pair_inhibitor_instance *get_instance_by_l_pos(uint32_t pos) {
     for (size_t i = 0; i < PAIR_INHIBITOR_COUNT; ++i) {
         if (pair_inhibitors[i].l_pos == pos) {
@@ -96,7 +89,6 @@ static int bubble_position_event(uint32_t position, bool pressed) {
   
     dupe_ev.header.event =  &zmk_event_zmk_position_state_changed;
     return ZMK_EVENT_RAISE_AFTER(dupe_ev, pair_inhibitor);
-    // return ZMK_EVENT_RAISE(dupe_ev);
 }
 
 // Timeout handler for L-keys
@@ -113,7 +105,6 @@ static void l_key_timeout_handler(struct k_work *work) {
         LOG_WRN("L-key %d timeout handler called in unexpected state %d", instance->l_pos, instance->state);
     }
 }
-
 
 // Event listener function for ZMK position_state_changed events
 static int pair_inhibitor_listener(const zmk_event_t *eh) {
@@ -146,28 +137,23 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
         return ZMK_EV_EVENT_BUBBLE;
     }
     
-    LOG_DBG("Pair Inhibitor: Pos %d %s (L_pos %d, H_pos %d), State %d, last L_phys_pressed state: %d", 
-            position, is_pressed ? "pressed" : "released", instance->l_pos, instance->h_pos, 
-            instance->state, instance->l_is_physically_pressed);
+    LOG_DBG("Pair-inhibitor [L%d, H%d] triggered by Pos %d %s , (hitherto state: %d)", 
+            instance->l_pos, instance->h_pos, position, is_pressed ? "vvv pressed" : "^^^ released", instance->state);
 
     if (is_l_key) {
         if (is_pressed) { // L-key pressed
             if (instance->state == PAIR_INHIBITOR_STATE_IDLE) {
                 LOG_DBG("L-key %d pressed: Starting timeout", position);
                 instance->state = PAIR_INHIBITOR_STATE_L_PENDING_TIMEOUT;
-                instance->l_is_physically_pressed = true; // Mark physical L as pressed
                 k_work_reschedule(&instance->work_item, K_MSEC(instance->timeout_ms));
                 return ZMK_EV_EVENT_HANDLED; // Consume L-key press (don't bubble yet)
             } else { 
                 // L is already in a state (PENDING_TIMEOUT, ACTIVE, or INHIBITED).
                 // Any additional physical press should be consumed, but update physical state.
-                instance->l_is_physically_pressed = true;
                 LOG_DBG("L-key %d pressed: Already in state %d, consuming", position, instance->state);
                 return ZMK_EV_EVENT_HANDLED;
             }
         } else { // L-key released
-            instance->l_is_physically_pressed = false; // Physical release occurred
-            
             if (instance->state == PAIR_INHIBITOR_STATE_L_PENDING_TIMEOUT) {
                 // TODO, hgi: will probably not happen, because user is to slow for press/release <
                 // timeout, but should probably create press event in-between here and then do ZMK_EV_EVENT_BUBBLE 
@@ -226,7 +212,6 @@ static int pair_inhibitor_listener(const zmk_event_t *eh) {
         .h_pos = DT_PROP_BY_IDX(node_id, key_positions_pair, 1),                          \
         .timeout_ms = DT_PROP_OR(node_id, timeout_ms, 10),                                \
         .state = PAIR_INHIBITOR_STATE_IDLE,                                               \
-        .l_is_physically_pressed = false,                                                 \
     },
 
 // Initialize the static array of pair inhibitor instances using DTS data
